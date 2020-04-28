@@ -36,6 +36,7 @@ class ElasticsearchPublisher(Publisher):
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-simple-analyzer.html
     # Standard Analyzer is used for all text fields that don't explicitly specify an analyzer
     # https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-standard-analyzer.html
+    # TODO use amundsencommon for this when this project is updated to py3
     DEFAULT_ELASTICSEARCH_INDEX_MAPPING = textwrap.dedent(
         """
         {
@@ -51,7 +52,7 @@ class ElasticsearchPublisher(Publisher):
                     }
                   }
                 },
-                "schema_name": {
+                "schema": {
                   "type":"text",
                   "analyzer": "simple",
                   "fields": {
@@ -60,7 +61,10 @@ class ElasticsearchPublisher(Publisher):
                     }
                   }
                 },
-                "last_updated_epoch": {
+                "display_name": {
+                  "type": "keyword"
+                },
+                "last_updated_timestamp": {
                   "type": "date",
                   "format": "epoch_second"
                 },
@@ -82,6 +86,9 @@ class ElasticsearchPublisher(Publisher):
                   "analyzer": "simple"
                 },
                 "tags": {
+                  "type": "keyword"
+                },
+                "badges": {
                   "type": "keyword"
                 },
                 "cluster": {
@@ -143,8 +150,8 @@ class ElasticsearchPublisher(Publisher):
             indices = self.elasticsearch_client.indices.get_alias(self.elasticsearch_alias).keys()
             return indices
         except NotFoundError:
-            LOGGER.warn('Received index not found error from Elasticsearch. ' +
-                        'The index doesnt exist for a newly created ES.')
+            LOGGER.warn("Received index not found error from Elasticsearch. " +
+                        "The index doesn't exist for a newly created ES. It's OK on first run.")
             # return empty list on exception
             return []
 

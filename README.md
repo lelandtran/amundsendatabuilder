@@ -4,13 +4,19 @@
 [![Build Status](https://api.travis-ci.com/lyft/amundsendatabuilder.svg?branch=master)](https://travis-ci.com/lyft/amundsendatabuilder)
 [![Coverage Status](https://img.shields.io/codecov/c/github/lyft/amundsendatabuilder/master.svg)](https://codecov.io/github/lyft/amundsendatabuilder?branch=master)
 [![License](http://img.shields.io/:license-Apache%202-blue.svg)](LICENSE)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/amundsen-databuilder.svg)](https://pypi.org/project/amundsen-databuilder/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
-[![Slack Status](https://img.shields.io/badge/slack-join_chat-white.svg?logo=slack&style=social)](https://bit.ly/2FVq37z)
+[![Slack Status](https://img.shields.io/badge/slack-join_chat-white.svg?logo=slack&style=social)](https://amundsenworkspace.slack.com/join/shared_invite/enQtNTk2ODQ1NDU1NDI0LTc3MzQyZmM0ZGFjNzg5MzY1MzJlZTg4YjQ4YTU0ZmMxYWU2MmVlMzhhY2MzMTc1MDg0MzRjNTA4MzRkMGE0Nzk)
 
-Amundsen Databuilder is a data ingestion library, which is inspired by [Apache Gobblin](https://gobblin.apache.org/). It could be used in an orchestration framework(e.g. Apache Airflow) to build data from Amundsen. You could use the library either with an adhoc python script([example](https://github.com/lyft/amundsendatabuilder/blob/master/example/scripts/sample_data_loader.py)) or inside an Apache Airflow DAG([example](https://github.com/lyft/amundsendatabuilder/blob/master/example/dags/sample_dag.py)).
+Amundsen Databuilder is a data ingestion library, which is inspired by [Apache Gobblin](https://gobblin.apache.org/). It could be used in an orchestration framework(e.g. Apache Airflow) to build data from Amundsen. You could use the library either with an adhoc python script([example](https://github.com/lyft/amundsendatabuilder/blob/master/example/scripts/sample_data_loader.py)) or inside an Apache Airflow DAG([example](https://github.com/lyft/amundsendatabuilder/blob/master/example/dags/hive_sample_dag.py)).
+
+For information about Amundsen and our other services, visit the [main repository](https://github.com/lyft/amundsen#amundsen) `README.md` . Please also see our instructions for a [quick start](https://github.com/lyft/amundsen/blob/master/docs/installation.md#bootstrap-a-default-version-of-amundsen-using-docker) setup  of Amundsen with dummy data, and an [overview of the architecture](https://github.com/lyft/amundsen/blob/master/docs/architecture.md#architecture).
 
 ## Requirements
-- Python = 2.7.x (And Python >= 3.x if you don't use column usage transformer as it depends on antlr python 2 runtime)
+- Python = 2.7.x or Python >= 3.6.x
+
+## Doc
+- https://lyft.github.io/amundsen/
 
 ## Concept
 ETL job consists of extraction of records from the source, transform records, if necessary, and load records into the sink. Amundsen Databuilder is a ETL framework for Amundsen and there are corresponding components for ETL called Extractor, Transformer, and Loader that deals with record level operation. A component called task controls all these three components.
@@ -43,6 +49,8 @@ A publisher is an optional component. It's common usage is to support atomicity 
 ### [Job](https://github.com/lyft/amundsendatabuilder/tree/master/databuilder/job "Job")
 Job is the highest level component in Databuilder, and it orchestrates task, and publisher.
 
+## [Model](docs/models.md)
+Models are abstractions representing the domain.
 
 ## List of extractors
 #### [DBAPIExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/db_api_extractor.py "DBAPIExtractor")
@@ -67,7 +75,7 @@ job.launch()
 An extractor that takes list of dict from user through config.
 
 #### [HiveTableLastUpdatedExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/hive_table_last_updated_extractor.py "HiveTableLastUpdatedExtractor")
-An extractor that extracts last updated time from Hive metastore and underlying file system. Although, hive metastore as a parameter called "last_modified_time", but it cannot be used as it provides DDL timestamp not DML timestamp.
+An extractor that extracts last updated time from Hive metastore and underlying file system. Although, hive metastore has a parameter called "last_modified_time", but it cannot be used as it provides DDL timestamp not DML timestamp.
 For this reason, HiveTableLastUpdatedExtractor is utilizing underlying file of Hive to fetch latest updated date. However, it is not efficient to poke all files in Hive, and it only pokes underlying storage for non-partitioned table. For partitioned table, it will fetch partition created timestamp, and it's close enough for last updated timestamp.
 
 As getting metadata from files could be time consuming there're several features to increase performance.
@@ -106,6 +114,70 @@ job = DefaultJob(
 job.launch()
 ```
 
+#### [CassandraExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/cassandra_extractor.py "CassandraExtractor")
+An extractor that extracts table and column metadata including keyspace, table name, column name and column type from Apache Cassandra databases
+
+```python
+job_config = ConfigFactory.from_dict({
+	'extractor.cassandra.{}'.format(CassandraExtractor.CLUSTER_KEY): cluster_identifier_string,
+	'extractor.cassandra.{}'.format(CassandraExtractor.IPS_KEY): [127.0.0.1],
+	'extractor.cassandra.{}'.format(CassandraExtractor.KWARGS_KEY): {},
+	'extractor.cassandra.{}'.format(CassandraExtractor.FILTER_FUNCTION_KEY): my_filter_function,
+
+})
+job = DefaultJob(
+	conf=job_config,
+	task=DefaultTask(
+		extractor=CassandraExtractor(),
+		loader=AnyLoader()))
+job.launch()
+```
+
+If using the function filter options here is the function description
+```python
+def filter(keytab, table):
+  # return False if you don't want to add that table and True if you want to add
+  return True
+```
+
+If needed to define more args on the cassandra cluster you can pass through kwargs args
+```python
+config = ConfigFactory.from_dict({
+	'extractor.cassandra.{}'.format(CassandraExtractor.IPS_KEY): [127.0.0.1],
+	'extractor.cassandra.{}'.format(CassandraExtractor.KWARGS_KEY): {'port': 9042}
+})
+# it will call the cluster constructor like this
+Cluster([127.0.0.1], **kwargs)
+```
+
+#### [GlueExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/glue_extractor.py "GlueExtractor")
+An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from AWS Glue metastore.
+
+Before running make sure you have a working AWS profile configured and have access to search tables on Glue
+```python
+job_config = ConfigFactory.from_dict({
+	'extractor.glue.{}'.format(GlueExtractor.CLUSTER_KEY): cluster_identifier_string,
+	'extractor.glue.{}'.format(GlueExtractor.FILTER_KEY): []})
+job = DefaultJob(
+	conf=job_config,
+	task=DefaultTask(
+		extractor=GlueExtractor(),
+		loader=AnyLoader()))
+job.launch()
+```
+
+If using the filters option here is the input format
+```
+[
+  {
+    "Key": "string",
+    "Value": "string",
+    "Comparator": "EQUALS"|"GREATER_THAN"|"LESS_THAN"|"GREATER_THAN_EQUALS"|"LESS_THAN_EQUALS"
+  }
+  ...
+]
+```
+
 #### [PostgresMetadataExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/postgres_metadata_extractor.py "PostgresMetadataExtractor")
 An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from a Postgres or Redshift database.
 
@@ -126,6 +198,103 @@ job = DefaultJob(
 	task=DefaultTask(
 		extractor=PostgresMetadataExtractor(),
 		loader=AnyLoader()))
+job.launch()
+```
+
+#### [MysqlMetadataExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/mysql_metadata_extractor.py "PostgresMetadataExtractor")
+An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from a MYSQL database.
+
+By default, the MYSQL database name is used as the cluster name. To override this, set `USE_CATALOG_AS_CLUSTER_NAME`
+to `False`, and `CLUSTER_KEY` to what you wish to use as the cluster name.
+
+The `where_clause_suffix` below should define which schemas you'd like to query.
+
+The SQL query driving the extraction is defined [here](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/mysql_metadata_extractor.py)
+
+```python
+job_config = ConfigFactory.from_dict({
+	'extractor.mysql_metadata.{}'.format(MysqlMetadataExtractor.WHERE_CLAUSE_SUFFIX_KEY): where_clause_suffix,
+  'extractor.mysql_metadata.{}'.format(MysqlMetadataExtractor.USE_CATALOG_AS_CLUSTER_NAME): True,
+	'extractor.postgres_metadata.extractor.sqlalchemy.{}'.format(SQLAlchemyExtractor.CONN_STRING): connection_string()})
+job = DefaultJob(conf=job_config,
+								 task=DefaultTask(extractor=MysqlMetadataExtractor(), loader=FsNeo4jCSVLoader()),
+								 publisher=Neo4jCsvPublisher())
+job.launch()
+
+
+#### [Db2MetadataExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/db2_metadata_extractor.py "Db2MetadataExtractor")
+An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from a Unix, Windows or Linux Db2 database or BigSQL.
+
+The `where_clause_suffix` below should define which schemas you'd like to query or those that you would not (see [the sample data loader](https://github.com/lyft/amundsendatabuilder/blob/master/example/sample_db2_data_loader.py) for an example).
+
+The SQL query driving the extraction is defined [here](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/db2_metadata_extractor.py)
+
+```python
+job_config = ConfigFactory.from_dict({
+	'extractor.db2_metadata.{}'.format(Db2MetadataExtractor.WHERE_CLAUSE_SUFFIX_KEY): where_clause_suffix,
+	'extractor.db2_metadata.extractor.sqlalchemy.{}'.format(SQLAlchemyExtractor.CONN_STRING): connection_string()})
+job = DefaultJob(
+	conf=job_config,
+	task=DefaultTask(
+		extractor=Db2MetadataExtractor(),
+		loader=AnyLoader()))
+job.launch()
+```
+
+#### [SnowflakeMetadataExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/snowflake_metadata_extractor.py "SnowflakeMetadataExtractor")
+An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from a Snowflake database.
+
+By default, the Snowflake database name is used as the cluter name. To override this, set `USE_CATALOG_AS_CLUSTER_NAME`
+to `False`, and `CLUSTER_KEY` to what you wish to use as the cluster name.
+
+By default, the Snowflake database is set to `PROD`. To override this, set `DATABASE_KEY`
+to `WhateverNameOfYourDb`.
+
+The `where_clause_suffix` below should define which schemas you'd like to query (see [the sample dag](https://github.com/lyft/amundsendatabuilder/blob/master/example/scripts/sample_snowflake_data_loader.py) for an example).
+
+The SQL query driving the extraction is defined [here](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/snowflake_metadata_extractor.py)
+
+```python
+job_config = ConfigFactory.from_dict({
+	'extractor.postgres_metadata.{}'.format(PostgresMetadataExtractor.DATABASE_KEY): 'YourDbName',
+	'extractor.postgres_metadata.{}'.format(PostgresMetadataExtractor.WHERE_CLAUSE_SUFFIX_KEY): where_clause_suffix,
+    'extractor.postgres_metadata.{}'.format(PostgresMetadataExtractor.USE_CATALOG_AS_CLUSTER_NAME): True,
+	'extractor.postgres_metadata.extractor.sqlalchemy.{}'.format(SQLAlchemyExtractor.CONN_STRING): connection_string()})
+job = DefaultJob(
+	conf=job_config,
+	task=DefaultTask(
+		extractor=SnowflakeMetadataExtractor(),
+		loader=AnyLoader()))
+job.launch()
+```
+
+#### [BigQueryMetadataExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/bigquery_metadata_extractor.py "BigQuery Metdata Extractor")
+An extractor that extracts table and column metadata including database, schema, table name, table description, column name and column description from a Bigquery database.
+
+The API calls driving the extraction is defined [here](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/bigquery_metadata_extractor.py)
+
+You will need to create a service account for reading metadata and grant it "BigQuery Metadata Viewer" access to all of your datasets. This can all be done via the bigquery ui.
+
+Download the creditials file and store it securely. Set the `GOOGLE_APPLICATION_CREDENTIALS` environment varible to the location of your credtials files and your code should have access to everything it needs.
+
+You can configure bigquery like this. You can optionally set a label filter if you only want to pull tables with a certain label.
+```python
+    job_config = {
+        'extractor.bigquery_table_metadata.{}'.format(
+            BigQueryMetadataExtractor.PROJECT_ID_KEY
+            ): gcloud_project
+    }
+    if label_filter:
+        job_config[
+            'extractor.bigquery_table_metadata.{}'
+            .format(BigQueryMetadataExtractor.FILTER_KEY)
+            ] = label_filter
+    task = DefaultTask(extractor=BigQueryMetadataExtractor(),
+                       loader=csv_loader,
+                       transformer=NoopTransformer())
+    job = DefaultJob(conf=ConfigFactory.from_dict(job_config),
+                     task=task,
+                     publisher=Neo4jCsvPublisher())
 job.launch()
 ```
 
@@ -179,10 +348,6 @@ job = DefaultJob(
 job.launch()
 ```
 
-#### [TblColUsgAggExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/table_column_usage_aggregate_extractor.py "TblColUsgAggExtractor")
-An extractor that extracts table usage from SQL statements. It accept any extractor  that extracts row from source that has SQL audit log. Once SQL statement is extracted, it uses [ANTLR](https://www.antlr.org/ "ANTLR") to parse and get tables and columns that it reads from. Also, it aggregates usage based on table and user. (Column level aggregation is not there yet.)
-
-
 ## List of transformers
 #### [ChainedTransformer](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/transformer/base_transformer.py#L41 "ChainedTransformer")
 A chanined transformer that can take multiple transformer.
@@ -202,9 +367,6 @@ job = DefaultJob(
 		loader=AnyLoader()))
 job.launch()
 ```
-
-#### [SqlToTblColUsageTransformer](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/transformer/sql_to_table_col_usage_transformer.py "SqlToTblColUsageTransformer")
-A SQL to usage transformer where it transforms to ColumnReader that has column, user, count. Currently it's collects on table level that column on same table will be de-duped. In many cases, "from" clause does not contain schema and this will be fetched via table name -> schema name mapping which it gets from metadata extractor.
 
 ## List of loader
 #### [FsNeo4jCSVLoader](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/loader/file_system_neo4j_csv_loader.py "FsNeo4jCSVLoader")
@@ -302,3 +464,90 @@ Callback interface is built upon a [Observer pattern](https://en.wikipedia.org/w
 Publisher is the first one adopting Callback where registered Callback will be called either when publish succeeded or when publish failed. In order to register callback, Publisher provides [register_call_back](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/publisher/base_publisher.py#L50 "register_call_back") method.
 
 One use case is for Extractor that needs to commit when job is finished (e.g: Kafka). Having Extractor register a callback to Publisher to commit when publish is successful, extractor can safely commit by implementing commit logic into [on_success](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/callback/call_back.py#L18 "on_success") method.
+
+### REST API Query
+Databuilder now has a generic REST API Query capability that can be joined each other.
+Most of the cases of extraction is currently from Database or Datawarehouse that is queryable via SQL. However, not all metadata sources provide our access to its Database and they mostly provide REST API to consume their metadata.
+
+The challenges come with REST API is that:
+
+ 1. there's no explicit standard in REST API. Here, we need to conform to majority of cases (HTTP call with JSON payload & response) but open for extension for different authentication scheme, and different way of pagination, etc.
+ 2. It is hardly the case that you would get what you want from one REST API call. It is usually the case that you need to snitch (JOIN) multiple REST API calls together to get the information you want.
+
+To solve this challenges, we introduce [RestApiQuery](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/rest_api/rest_api_query.py)
+
+RestAPIQuery is:  
+ 1. Assuming that REST API is using HTTP(S) call with GET method -- RestAPIQuery intention's is **read**, not write -- where basic HTTP auth is supported out of the box. There's extension point on other authentication scheme such as Oauth, and pagination, etc.
+ 2. Usually, you want the subset of the response you get from the REST API call -- value extraction. To extract the value you want, RestApiQuery uses [JSONPath](https://goessner.net/articles/JsonPath/) which is similar product as XPATH of XML.
+ 3. You can JOIN multiple RestApiQuery together.
+
+More detail on JOIN operation in RestApiQuery:  
+ 1. It joins multiple RestApiQuery together by accepting prior RestApiQuery as a constructor -- a [Decorator pattern](https://en.wikipedia.org/wiki/Decorator_pattern)
+ 2. In REST API, URL is the one that locates the resource we want. Here, JOIN simply means we need to find resource **based on the identifier that other query's result has**. In other words, when RestApiQuery forms URL, it uses previous query's result to compute the URL `e.g: Previous record: {"dashboard_id": "foo"}, URL before: http://foo.bar/dashboard/{dashboard_id} URL after compute: http://foo.bar/dashboard/foo`
+With this pattern RestApiQuery supports 1:1 and 1:N JOIN relationship.  
+(GROUP BY or any other aggregation, sub-query join is not supported)  
+
+To see in action, take a peek at [ModeDashboardExtractor](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/extractor/dashboard/mode_analytics/mode_dashboard_extractor.py)
+
+
+### Removing stale data in Neo4j -- [Neo4jStalenessRemovalTask](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/task/neo4j_staleness_removal_task.py):
+
+As Databuilder ingestion mostly consists of either INSERT OR UPDATE, there could be some stale data that has been removed from metadata source but still remains in Neo4j database. Neo4jStalenessRemovalTask basically detects staleness and removes it.
+
+In [Neo4jCsvPublisher](https://github.com/lyft/amundsendatabuilder/blob/master/databuilder/publisher/neo4j_csv_publisher.py), it adds attributes "published_tag" and "publisher_last_updated_epoch_ms" on every nodes and relations. You can use either of these two attributes to detect staleness and remove those stale node or relation from the database.
+
+#### Using "published_tag" to remove stale data
+Use *published_tag* to remove stale data, when it is certain that non-matching tag is stale once all the ingestion is completed. For example, suppose that you use current date (or execution date in Airflow) as a *published_tag*, "2020-03-31". Once Databuilder ingests all tables and all columns, all table nodes and column nodes should have *published_tag* as "2020-03-31". It is safe to assume that table nodes and column nodes whose *published_tag* is different -- such as "2020-03-30" or "2020-02-10" -- means that it is deleted from the source metadata. You can use Neo4jStalenessRemovalTask to delete those stale data.
+
+    task = Neo4jStalenessRemovalTask()
+    job_config_dict = {
+        'job.identifier': 'remove_stale_data_job',
+        'task.remove_stale_data.neo4j_endpoint': neo4j_endpoint,
+        'task.remove_stale_data.neo4j_user': neo4j_user,
+        'task.remove_stale_data.neo4j_password': neo4j_password,
+        'task.remove_stale_data.staleness_max_pct': 10,
+        'task.remove_stale_data.target_nodes': ['Table', 'Column'],
+        'task.remove_stale_data.job_publish_tag': '2020-03-31'
+    }
+    job_config = ConfigFactory.from_dict(job_config_dict)
+    job = DefaultJob(conf=job_config, task=task)
+    job.launch()
+
+Note that there's protection mechanism, **staleness_max_pct**, that protect your data being wiped out when something is clearly wrong. "**staleness_max_pct**" basically first measure the proportion of elements that will be deleted and if it exceeds threshold per type ( 10% on the configuration above ), the deletion won't be executed and the task aborts.
+
+#### Using "publisher_last_updated_epoch_ms" to remove stale data
+You can think this approach as TTL based eviction. This is particularly useful when there are multiple ingestion pipelines and you cannot be sure when all ingestion is done. In this case, you might still can say that if specific node or relation has not been published past 3 days, it's stale data.
+
+    task = Neo4jStalenessRemovalTask()
+    job_config_dict = {
+        'job.identifier': 'remove_stale_data_job',
+        'task.remove_stale_data.neo4j_endpoint': neo4j_endpoint,
+        'task.remove_stale_data.neo4j_user': neo4j_user,
+        'task.remove_stale_data.neo4j_password': neo4j_password,
+        'task.remove_stale_data.staleness_max_pct': 10,
+        'task.remove_stale_data.target_relations': ['READ', 'READ_BY'],
+        'task.remove_stale_data.milliseconds_to_expire': 86400000 * 3
+    }
+    job_config = ConfigFactory.from_dict(job_config_dict)
+    job = DefaultJob(conf=job_config, task=task)
+    job.launch()
+
+Above configuration is trying to delete stale usage relation (READ, READ_BY), by deleting READ or READ_BY relation that has not been published past 3 days. If number of elements to be removed is more than 10% per type, this task will be aborted without executing any deletion.
+
+#### Dry run
+Deletion is always scary and it's better to perform dryrun before put this into action. You can use Dry run to see what sort of Cypher query will be executed.
+
+    task = Neo4jStalenessRemovalTask()
+    job_config_dict = {
+        'job.identifier': 'remove_stale_data_job',
+        'task.remove_stale_data.neo4j_endpoint': neo4j_endpoint,
+        'task.remove_stale_data.neo4j_user': neo4j_user,
+        'task.remove_stale_data.neo4j_password': neo4j_password,
+        'task.remove_stale_data.staleness_max_pct': 10,
+        'task.remove_stale_data.target_relations': ['READ', 'READ_BY'],
+        'task.remove_stale_data.milliseconds_to_expire': 86400000 * 3
+        'task.remove_stale_data.dry_run': True
+    }
+    job_config = ConfigFactory.from_dict(job_config_dict)
+    job = DefaultJob(conf=job_config, task=task)
+    job.launch()

@@ -12,7 +12,7 @@ from databuilder.models.table_metadata import TableMetadata, ColumnMetadata
 from itertools import groupby
 
 
-TableKey = namedtuple('TableKey', ['schema_name', 'table_name'])
+TableKey = namedtuple('TableKey', ['schema', 'table_name'])
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class PostgresMetadataExtractor(Extractor):
     # SELECT statement from postgres information_schema to extract table and column metadata
     SQL_STATEMENT = """
     SELECT
-      {cluster_source} as cluster, c.table_schema as schema_name, c.table_name as name, pgtd.description as description
+      {cluster_source} as cluster, c.table_schema as schema, c.table_name as name, pgtd.description as description
       ,c.column_name as col_name, c.data_type as col_type
       , pgcd.description as col_description, ordinal_position as col_sort_order
     FROM INFORMATION_SCHEMA.COLUMNS c
@@ -35,7 +35,7 @@ class PostgresMetadataExtractor(Extractor):
     LEFT JOIN
       pg_catalog.pg_description pgtd on pgtd.objoid=st.relid and pgtd.objsubid=0
     {where_clause_suffix}
-    ORDER by cluster, schema_name, name, col_sort_order ;
+    ORDER by cluster, schema, name, col_sort_order ;
     """
 
     # CONFIG KEYS
@@ -72,11 +72,13 @@ class PostgresMetadataExtractor(Extractor):
             cluster_source=cluster_source
         )
 
-        LOGGER.info('SQL for postgres metadata: {}'.format(self.sql_stmt))
-
         self._alchemy_extractor = SQLAlchemyExtractor()
         sql_alch_conf = Scoped.get_scoped_conf(conf, self._alchemy_extractor.get_scope())\
             .with_fallback(ConfigFactory.from_dict({SQLAlchemyExtractor.EXTRACT_SQL: self.sql_stmt}))
+
+        self.sql_stmt = sql_alch_conf.get_string(SQLAlchemyExtractor.EXTRACT_SQL)
+
+        LOGGER.info('SQL for postgres metadata: {}'.format(self.sql_stmt))
 
         self._alchemy_extractor.init(sql_alch_conf)
         self._extract_iter = None  # type: Union[None, Iterator]
@@ -109,7 +111,7 @@ class PostgresMetadataExtractor(Extractor):
                                               row['col_type'], row['col_sort_order']))
 
             yield TableMetadata(self._database, last_row['cluster'],
-                                last_row['schema_name'],
+                                last_row['schema'],
                                 last_row['name'],
                                 last_row['description'],
                                 columns)
@@ -133,6 +135,6 @@ class PostgresMetadataExtractor(Extractor):
         :return:
         """
         if row:
-            return TableKey(schema_name=row['schema_name'], table_name=row['name'])
+            return TableKey(schema=row['schema'], table_name=row['name'])
 
         return None

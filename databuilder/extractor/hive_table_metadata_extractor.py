@@ -11,7 +11,7 @@ from databuilder.models.table_metadata import TableMetadata, ColumnMetadata
 from itertools import groupby
 
 
-TableKey = namedtuple('TableKey', ['schema_name', 'table_name'])
+TableKey = namedtuple('TableKey', ['schema', 'table_name'])
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,18 +27,20 @@ class HiveTableMetadataExtractor(Extractor):
     # Using UNION to combine above two statements and order by table & partition identifier.
     SQL_STATEMENT = """
     SELECT source.* FROM
-    (SELECT t.TBL_ID, d.NAME as schema_name, t.TBL_NAME name, t.TBL_TYPE, tp.PARAM_VALUE as description,
+    (SELECT t.TBL_ID, d.NAME as `schema`, t.TBL_NAME name, t.TBL_TYPE, tp.PARAM_VALUE as description,
            p.PKEY_NAME as col_name, p.INTEGER_IDX as col_sort_order,
-           p.PKEY_TYPE as col_type, p.PKEY_COMMENT as col_description, 1 as "is_partition_col"
+           p.PKEY_TYPE as col_type, p.PKEY_COMMENT as col_description, 1 as "is_partition_col",
+           IF(t.TBL_TYPE = 'VIRTUAL_VIEW', 1, 0) "is_view"
     FROM TBLS t
     JOIN DBS d ON t.DB_ID = d.DB_ID
     JOIN PARTITION_KEYS p ON t.TBL_ID = p.TBL_ID
     LEFT JOIN TABLE_PARAMS tp ON (t.TBL_ID = tp.TBL_ID AND tp.PARAM_KEY='comment')
     {where_clause_suffix}
     UNION
-    SELECT t.TBL_ID, d.NAME as schema_name, t.TBL_NAME name, t.TBL_TYPE, tp.PARAM_VALUE as description,
+    SELECT t.TBL_ID, d.NAME as `schema`, t.TBL_NAME name, t.TBL_TYPE, tp.PARAM_VALUE as description,
            c.COLUMN_NAME as col_name, c.INTEGER_IDX as col_sort_order,
-           c.TYPE_NAME as col_type, c.COMMENT as col_description, 0 as "is_partition_col"
+           c.TYPE_NAME as col_type, c.COMMENT as col_description, 0 as "is_partition_col",
+           IF(t.TBL_TYPE = 'VIRTUAL_VIEW', 1, 0) "is_view"
     FROM TBLS t
     JOIN DBS d ON t.DB_ID = d.DB_ID
     JOIN SDS s ON t.SD_ID = s.SD_ID
@@ -99,12 +101,13 @@ class HiveTableMetadataExtractor(Extractor):
                 last_row = row
                 columns.append(ColumnMetadata(row['col_name'], row['col_description'],
                                               row['col_type'], row['col_sort_order']))
-
+            is_view = last_row['is_view'] == 1
             yield TableMetadata('hive', self._cluster,
-                                last_row['schema_name'],
+                                last_row['schema'],
                                 last_row['name'],
                                 last_row['description'],
-                                columns)
+                                columns,
+                                is_view=is_view)
 
     def _get_raw_extract_iter(self):
         # type: () -> Iterator[Dict[str, Any]]
@@ -125,6 +128,6 @@ class HiveTableMetadataExtractor(Extractor):
         :return:
         """
         if row:
-            return TableKey(schema_name=row['schema_name'], table_name=row['name'])
+            return TableKey(schema=row['schema'], table_name=row['name'])
 
         return None

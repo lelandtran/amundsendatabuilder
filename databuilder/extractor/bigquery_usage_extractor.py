@@ -4,14 +4,10 @@ import logging
 import re
 from time import sleep
 
-import google.oauth2.service_account
-import google_auth_httplib2
-from googleapiclient.discovery import build
-import httplib2
 from pyhocon import ConfigTree  # noqa: F401
 from typing import Dict, Optional  # noqa: F401
 
-from databuilder.extractor.base_extractor import Extractor
+from databuilder.extractor.base_bigquery_extractor import BaseBigQueryExtractor
 
 TableColumnUsageTuple = namedtuple('TableColumnUsageTuple', ['database', 'cluster', 'schema',
                                                              'table', 'column', 'email'])
@@ -19,45 +15,26 @@ TableColumnUsageTuple = namedtuple('TableColumnUsageTuple', ['database', 'cluste
 LOGGER = logging.getLogger(__name__)
 
 
-class BigQueryTableUsageExtractor(Extractor):
+class BigQueryTableUsageExtractor(BaseBigQueryExtractor):
     """
     An aggregate extractor for bigquery table usage. This class takes the data from
     the stackdriver logging API by filtering on timestamp, bigquery_resource and looking
     for referencedTables in the response.
     """
     TIMESTAMP_KEY = 'timestamp'
-    PROJECT_ID_KEY = 'project_id'
-    DEFAULT_PAGE_SIZE = 300
-    PAGE_SIZE_KEY = 'page_size'
-    KEY_PATH_KEY = 'key_path'
     _DEFAULT_SCOPES = ('https://www.googleapis.com/auth/cloud-platform',)
     EMAIL_PATTERN = 'email_pattern'
-    NUM_RETRIES = 3
-    DELAY_TIME = 10
+    DELAY_TIME = 'delay_time'
 
     def init(self, conf):
         # type: (ConfigTree) -> None
-        self.key_path = conf.get_string(BigQueryTableUsageExtractor.KEY_PATH_KEY, None)
-        if self.key_path:
-            credentials = (
-                google.oauth2.service_account.Credentials.from_service_account_file(
-                    self.key_path, scopes=BigQueryTableUsageExtractor._DEFAULT_SCOPES))
-        else:
-            credentials, _ = google.auth.default(scopes=BigQueryTableUsageExtractor._DEFAULT_SCOPES)
-
-        http = httplib2.Http()
-        authed_http = google_auth_httplib2.AuthorizedHttp(credentials, http=http)
-        self.logging_service = build('logging', 'v2', http=authed_http, cache_discovery=False)
-
+        BaseBigQueryExtractor.init(self, conf)
         self.timestamp = conf.get_string(
             BigQueryTableUsageExtractor.TIMESTAMP_KEY,
             (date.today() - timedelta(days=1)).strftime('%Y-%m-%dT00:00:00Z'))
-        self.projectid = conf.get_string(BigQueryTableUsageExtractor.PROJECT_ID_KEY)
-        self.pagesize = conf.get_int(
-            BigQueryTableUsageExtractor.PAGE_SIZE_KEY,
-            BigQueryTableUsageExtractor.DEFAULT_PAGE_SIZE)
 
         self.email_pattern = conf.get_string(BigQueryTableUsageExtractor.EMAIL_PATTERN, None)
+        self.delay_time = conf.get_int(BigQueryTableUsageExtractor.DELAY_TIME, 100)
 
         self.table_usage_counts = {}
         self._count_usage()
@@ -125,7 +102,7 @@ class BigQueryTableUsageExtractor(Extractor):
         """
         body = {
             'resourceNames': [
-                'projects/{projectid}'.format(projectid=self.projectid)
+                'projects/{project_id}'.format(project_id=self.project_id)
             ],
             'pageSize': self.pagesize,
             'filter': 'resource.type="bigquery_resource" AND '
@@ -149,7 +126,8 @@ class BigQueryTableUsageExtractor(Extractor):
         response = self.logging_service.entries().list(body=body).execute(
             num_retries=BigQueryTableUsageExtractor.NUM_RETRIES)
         while response:
-            yield response
+            if 'entries' in response:
+                yield response
 
             try:
                 if 'nextPageToken' in response:
@@ -160,7 +138,7 @@ class BigQueryTableUsageExtractor(Extractor):
                     response = None
             except Exception:
                 # Add a delay when BQ quota exceeds limitation
-                sleep(BigQueryTableUsageExtractor.DELAY_TIME)
+                sleep(self.delay_time)
 
     def get_scope(self):
         # type: () -> str

@@ -55,6 +55,16 @@ TABLE_DATA = {'kind': 'bigquery#table', 'etag': 'Hzc/56Rp9VR4Y6jhZApD/g==', 'id'
     'lastModifiedTime': '1557577756370',
     'type': 'TABLE',
     'location': 'EU'}  # noqa
+NO_SCHEMA = {'kind': 'bigquery#table', 'etag': 'Hzc/56Rp9VR4Y6jhZApD/g==', 'id': 'your-project-here:fdgdfgh.no_schema',
+    'selfLink': 'https://www.googleapis.com/bigquery/v2/projects/your-project-here/datasets/fdgdfgh/tables/no_schema',
+    'tableReference': {'projectId': 'your-project-here', 'datasetId': 'fdgdfgh', 'tableId': 'no_schema'},
+    'numBytes': '0',
+    'numLongTermBytes': '0',
+    'numRows': '0',
+    'creationTime': '1557577756303',
+    'lastModifiedTime': '1557577756370',
+    'type': 'TABLE',
+    'location': 'EU'}  # noqa
 NO_COLS = {'kind': 'bigquery#table', 'etag': 'Hzc/56Rp9VR4Y6jhZApD/g==', 'id': 'your-project-here:fdgdfgh.no_columns',
     'selfLink': 'https://www.googleapis.com/bigquery/v2/projects/your-project-here/datasets/fdgdfgh/tables/no_columns',
     'tableReference': {'projectId': 'your-project-here', 'datasetId': 'fdgdfgh', 'tableId': 'no_columns'},
@@ -132,7 +142,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
                 'your-project-here'}
         self.conf = ConfigFactory.from_dict(config_dict)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_can_handle_datasets(self, mock_build):
         mock_build.return_value = MockBigQueryClient(NO_DATASETS, None, None)
         extractor = BigQueryMetadataExtractor()
@@ -141,7 +151,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
         result = extractor.extract()
         self.assertIsNone(result)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_empty_dataset(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, NO_TABLES, None)
         extractor = BigQueryMetadataExtractor()
@@ -150,7 +160,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
         result = extractor.extract()
         self.assertIsNone(result)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_accepts_dataset_filter_by_label(self, mock_build):
         config_dict = {
             'extractor.bigquery_table_metadata.{}'.format(BigQueryMetadataExtractor.PROJECT_ID_KEY):
@@ -167,7 +177,23 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
         result = extractor.extract()
         self.assertIsInstance(result, TableMetadata)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
+    def test_table_without_schema(self, mock_build):
+        mock_build.return_value = MockBigQueryClient(ONE_DATASET, ONE_TABLE, NO_SCHEMA)
+        extractor = BigQueryMetadataExtractor()
+        extractor.init(Scoped.get_scoped_conf(conf=self.conf,
+                                              scope=extractor.get_scope()))
+        result = extractor.extract()
+
+        self.assertEquals(result.database, 'bigquery')
+        self.assertEquals(result.cluster, 'your-project-here')
+        self.assertEquals(result.schema, 'fdgdfgh')
+        self.assertEquals(result.name, 'nested_recs')
+        self.assertEquals(result.description._text, '')
+        self.assertEquals(result.columns, [])
+        self.assertEquals(result.is_view, False)
+
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_table_without_columns(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, ONE_TABLE, NO_COLS)
         extractor = BigQueryMetadataExtractor()
@@ -177,13 +203,13 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
 
         self.assertEquals(result.database, 'bigquery')
         self.assertEquals(result.cluster, 'your-project-here')
-        self.assertEquals(result.schema_name, 'fdgdfgh')
+        self.assertEquals(result.schema, 'fdgdfgh')
         self.assertEquals(result.name, 'nested_recs')
-        self.assertEquals(result.description, '')
+        self.assertEquals(result.description._text, "")
         self.assertEquals(result.columns, [])
         self.assertEquals(result.is_view, False)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_view(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, ONE_VIEW, VIEW_DATA)
         extractor = BigQueryMetadataExtractor()
@@ -193,7 +219,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
         self.assertIsInstance(result, TableMetadata)
         self.assertEquals(result.is_view, True)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_normal_table(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, ONE_TABLE, TABLE_DATA)
         extractor = BigQueryMetadataExtractor()
@@ -203,17 +229,17 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
 
         self.assertEquals(result.database, 'bigquery')
         self.assertEquals(result.cluster, 'your-project-here')
-        self.assertEquals(result.schema_name, 'fdgdfgh')
+        self.assertEquals(result.schema, 'fdgdfgh')
         self.assertEquals(result.name, 'nested_recs')
-        self.assertEquals(result.description, '')
+        self.assertEquals(result.description._text, "")
 
         first_col = result.columns[0]
         self.assertEquals(first_col.name, 'test')
         self.assertEquals(first_col.type, 'STRING')
-        self.assertEquals(first_col.description, 'some_description')
+        self.assertEquals(first_col.description._text, 'some_description')
         self.assertEquals(result.is_view, False)
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_table_with_nested_records(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, ONE_TABLE, NESTED_DATA)
         extractor = BigQueryMetadataExtractor()
@@ -231,7 +257,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
         self.assertEquals(third_col.name, 'nested.nested2.ahah')
         self.assertEquals(third_col.type, 'STRING')
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_keypath_and_pagesize_can_be_set(self, mock_build):
         config_dict = {
             'extractor.bigquery_table_metadata.{}'.format(BigQueryMetadataExtractor.PROJECT_ID_KEY):
@@ -250,7 +276,7 @@ class TestBigQueryMetadataExtractor(unittest.TestCase):
             extractor.init(Scoped.get_scoped_conf(conf=conf,
                                                   scope=extractor.get_scope()))
 
-    @patch('databuilder.extractor.bigquery_metadata_extractor.build')
+    @patch('databuilder.extractor.base_bigquery_extractor.build')
     def test_table_part_of_table_date_range(self, mock_build):
         mock_build.return_value = MockBigQueryClient(ONE_DATASET, TABLE_DATE_RANGE, TABLE_DATA)
         extractor = BigQueryMetadataExtractor()
